@@ -382,10 +382,104 @@ Streaming is enabled by default. =(setq chatgpt-shell-streaming nil)= to disable
 | chatgpt-shell-model-temperature                                  | What sampling temperature to use, between 0 and 2, or nil.                   |
 | chatgpt-shell-request-timeout                                    | How long to wait for a request to time out in seconds.                       |
 | chatgpt-shell-kagi-api-url-base                                  | Kagi API’s base URL.                                                         |
+| chatgpt-shell-buffer-selection-function                          | Function to determine which chatgpt-shell buffer to use.                     |
 
 There are more. Browse via =M-x set-variable=
 
+* Context-Specific Shell Buffers (Optional)
+:PROPERTIES:
+:ID:       454069de-e894-4053-ac40-61c626084b2b
+:END:
+
+By default, `chatgpt-shell` uses a single primary shell buffer for most commands (like sending regions or prompts from the minibuffer). You can always create additional, independent shells using =C-u M-x chatgpt-shell=.
+
+For users who work on multiple projects simultaneously, `chatgpt-shell` offers a way to automatically select or create shell buffers based on the current context (e.g., the current directory or project). This is controlled by the `chatgpt-shell-buffer-selection-function` variable.
+
+** =chatgpt-shell-buffer-selection-function=
+:PROPERTIES:
+:ID:       b87724d1-dbed-47fa-98b6-0e8dd4c46b8c
+:END:
+
+This variable holds a function that determines which chatgpt-shell buffer to use when a command is invoked without the =C-u= prefix.
+
+- If =nil= (default): The standard behavior applies (use primary buffer, =C-u= for new).
+- If set to a function: Your function is called *without arguments*. It must return a *live buffer object*. Your function should contain the logic to:
+  1. Determine the current context (e.g., project root).
+  2. Find an existing `chatgpt-shell-mode` buffer associated with that context.
+  3. If no suitable buffer exists, create a new one using `chatgpt-shell-start` and return it.
+
+*** Example: Directory-Based Buffer Selection
+:PROPERTIES:
+:ID:       4250a21e-e28e-4788-850e-8c8fd2fb0117
+:END:
+
+This example creates or reuses a shell buffer named after the current `default-directory`.
+
+#+begin_src emacs-lisp :lexical no
+(defun my/chatgpt-shell-select-buffer-by-directory ()
+  "Find or create a chatgpt-shell buffer based on default-directory."
+  (let* ((dir-name (file-name-nondirectory (directory-file-name default-directory)))
+         (buffer-name (format "*chatgpt-shell<%s>*" dir-name))
+         (existing-buffer (get-buffer buffer-name)))
+    (if (and existing-buffer (buffer-live-p existing-buffer))
+        ;; Found a live buffer, return it
+        existing-buffer
+      ;; No suitable buffer, create a new one using positional arguments
+      (chatgpt-shell-start nil ; no-focus (set to nil to focus the new buffer)
+                           t   ; new-session
+                           t   ; ignore-as-primary
+                           nil ; model-version (use default)
+                           nil ; system-prompt (use default)
+                           buffer-name)))) ; buffer-name-override
+
+;; Set the function
+(setq chatgpt-shell-buffer-selection-function #'my/chatgpt-shell-select-buffer-by-directory)
+#+end_src
+
+*** Example: Projectile-Based Buffer Selection
+:PROPERTIES:
+:ID:       4eef4998-b573-4995-a629-45411d63ac49
+:END:
+
+This example uses the Projectile project root to find or create a shell buffer. Requires the =projectile= package.
+
+#+begin_src emacs-lisp :lexical no
+(defun my/chatgpt-shell-select-buffer-by-projectile ()
+  "Find or create a chatgpt-shell buffer based on projectile project.
+Includes the project name and current default model label in the buffer name."
+  (require 'projectile)
+  (let* ((project-root (ignore-errors (projectile-project-root)))
+         (project-name (when project-root (projectile-project-name)))
+         ;; Use project name or a default if not in a project
+         (context-key (or project-name "default"))
+         ;; Get the label of the currently configured default model
+         (model-label (chatgpt-shell--model-label)) ; Get current model label
+         ;; Create a buffer name including model label and context key
+         (buffer-name (format "*%s<%s>*" model-label context-key))
+         (existing-buffer (get-buffer buffer-name)))
+    (if (and existing-buffer (buffer-live-p existing-buffer))
+        ;; Found a live buffer, return it
+        existing-buffer
+      ;; No suitable buffer, create a new one
+      (chatgpt-shell-start nil ; no-focus (set to nil to focus the new buffer)
+                           t   ; new-session
+                           t   ; ignore-as-primary
+                           nil ; model-version (use default)
+                           nil ; system-prompt (use default)
+                           buffer-name)))) ; buffer-name-override
+
+
+;; Set the function (only if projectile is available)
+(when (require 'projectile nil t)
+  (setq chatgpt-shell-buffer-selection-function #'my/chatgpt-shell-select-buffer-by-projectile))
+#+end_src
+
+Remember that using =C-u= with commands like =M-x chatgpt-shell= will *always* create a fresh, unnamed buffer, bypassing your custom selection function.
+
 ** =chatgpt-shell-display-function= (with custom function)
+:PROPERTIES:
+:ID:       1e98f780-3766-4ac8-a477-3d0cc19001b5
+:END:
 
 If you'd prefer your own custom display function,
 
